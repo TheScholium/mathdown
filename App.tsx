@@ -1,0 +1,657 @@
+/**
+ * Mathdown: a Markdown + TeX editor plugin for Supernote (NOTE and DOC).
+ *
+ * Screens: editor (Edit / Split / View), file browser, settings.
+ */
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  Keyboard,
+  LayoutChangeEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  StatusBar,
+  Text,
+  TextInput,
+  TextInputSelectionChangeEventData,
+  View,
+} from 'react-native';
+import {PluginManager} from 'sn-plugin-lib';
+import {mathAtOffset, parseMarkdown} from './engine';
+import FileBrowser from './src/FileBrowser';
+import Preview from './src/Preview';
+import SettingsScreen from './src/SettingsScreen';
+import {on} from './src/bus';
+import {getSession, insertFormula, isInNote, textToTeX} from './src/note';
+import {SNIPPET_GROUPS, applySnippet} from './src/snippets';
+import {
+  DEFAULT_SETTINGS,
+  Settings,
+  basename,
+  canWrite,
+  exists,
+  loadDraft,
+  loadRecent,
+  loadSettings,
+  mkdirs,
+  pushRecent,
+  readText,
+  saveDraft,
+  saveSettings,
+  writeText,
+} from './src/storage';
+import {GRAY, INK, MONO, PAPER, S} from './src/theme';
+import {Button, Confirm, ConfirmSpec, Prompt, Segmented} from './src/ui';
+import {WELCOME} from './src/welcome';
+
+type Mode = 'edit' | 'split' | 'view';
+type Screen = 'editor' | 'files' | 'settings';
+type Sel = {start: number; end: number};
+
+const HISTORY_LIMIT = 200;
+
+function lineOffset(text: string, line: number): number {
+  let off = 0;
+  for (let i = 0; i < line; i++) {
+    const n = text.indexOf('\n', off);
+    if (n < 0) return text.length;
+    off = n + 1;
+  }
+  return off;
+}
+
+function timeNow(): string {
+  const d = new Date();
+  const p = (n: number) => (n < 10 ? '0' : '') + n;
+  return p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function errText(e: any): string {
+  return String(e && e.message ? e.message : e);
+}
+
+function App(): React.JSX.Element {
+  const [ready, setReady] = useState(false);
+  const [screen, setScreen] = useState<Screen>('editor');
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [path, setPath] = useState<string | null>(null);
+  const [text, setText] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [mode, setMode] = useState<Mode>('split');
+  const [previewSource, setPreviewSource] = useState('');
+  const [status, setStatus] = useState('');
+  const [progress, setProgress] = useState<[number, number]>([0, 0]);
+  const [inNote, setInNote] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [group, setGroup] = useState(0);
+  const [showSnippets, setShowSnippets] = useState(true);
+  const [forcedSel, setForcedSel] = useState<Sel | undefined>(undefined);
+  const [confirm, setConfirm] = useState<ConfirmSpec>(null);
+  const [savePrompt, setSavePrompt] = useState<null | {then?: () => void}>(null);
+  const [kbHeight, setKbHeight] = useState(0);
+  const [layoutH, setLayoutH] = useState(0);
+  const [maxH, setMaxH] = useState(0);
+  const [width, setWidth] = useState(700);
+
+  const sel = useRef<Sel>({start: 0, end: 0});
+  const editor = useRef<TextInput>(null);
+  const undo = useRef<{text: string; sel: Sel}[]>([]);
+  const redo = useRef<{text: string; sel: Sel}[]>([]);
+  const lastSnap = useRef(0);
+  const textRef = useRef(text);
+  textRef.current = text;
+  const stateRef = useRef({path, dirty});
+  stateRef.current = {path, dirty};
+
+  const session = useMemo(() => getSession(), []);
+
+  /* ---------------- start-up ---------------- */
+
+  useEffect(() => {
+    (async () => {
+      const s = await loadSettings();
+      setSettings(s);
+      setMode(s.autoPreview ? 'split' : 'edit');
+      const draft = await loadDraft();
+      if (draft && (draft.dirty || draft.path)) {
+        let restored = false;
+        if (draft.dirty) {
+          setPath(draft.path);
+          setText(draft.text);
+          setDirty(true);
+          setPreviewSource(draft.text);
+          setStatus('Restored unsaved changes' + (draft.path ? ' to ' + basename(draft.path) : ''));
+          restored = true;
+        } else if (draft.path && (await exists(draft.path).catch(() => false))) {
+          try {
+            const t = await readText(draft.path);
+            setPath(draft.path);
+            setText(t);
+            setPreviewSource(t);
+            restored = true;
+          } catch (e) {
+            setStatus('Could not reopen ' + basename(draft.path) + ': ' + errText(e));
+          }
+        }
+        if (!restored) {
+          setText(WELCOME);
+          setPreviewSource(WELCOME);
+        }
+      } else {
+        const recent = await loadRecent();
+        if (!recent.length) {
+          setText(WELCOME);
+          setPreviewSource(WELCOME);
+          setMode('view');
+        } else {
+          setText('');
+          setPreviewSource('');
+        }
+      }
+      setInNote(await isInNote());
+      setReady(true);
+    })();
+  }, []);
+
+  useEffect(() => on('open-settings', () => setScreen('settings')), []);
+  useEffect(
+    () =>
+      on('ui-shown', async () => {
+        setInNote(await isInNote());
+      }),
+    [],
+  );
+  useEffect(
+    () =>
+      on('ui-hidden', () => {
+        const st = stateRef.current;
+        saveDraft({path: st.path, text: textRef.current, dirty: st.dirty, savedAt: Date.now(), selection: sel.current.start});
+      }),
+    [],
+  );
+
+  /* ---------------- keyboard ---------------- */
+
+  useEffect(() => {
+    const a = Keyboard.addListener('keyboardDidShow', e => setKbHeight(e.endCoordinates.height));
+    const b = Keyboard.addListener('keyboardDidHide', () => setKbHeight(0));
+    return () => {
+      a.remove();
+      b.remove();
+    };
+  }, []);
+
+  const onRootLayout = (e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    setLayoutH(h);
+    setWidth(e.nativeEvent.layout.width);
+    if (h > maxH) setMaxH(h);
+  };
+  // If the host already shrank our view for the keyboard, do not pad twice.
+  const kbPad = Math.max(0, kbHeight - Math.max(0, maxH - layoutH));
+
+  /* ---------------- draft auto-save ---------------- */
+
+  useEffect(() => {
+    if (!ready) return;
+    const t = setTimeout(() => {
+      saveDraft({path, text, dirty, savedAt: Date.now(), selection: sel.current.start});
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [text, path, dirty, ready]);
+
+  /* ---------------- live preview ---------------- */
+
+  useEffect(() => {
+    if (mode === 'edit') return;
+    if (mode === 'view') {
+      setPreviewSource(text);
+      return;
+    }
+    if (!settings.autoPreview) return;
+    const t = setTimeout(() => setPreviewSource(text), settings.previewDelayMs);
+    return () => clearTimeout(t);
+  }, [text, mode, settings.autoPreview, settings.previewDelayMs]);
+
+  const blocks = useMemo(() => parseMarkdown(previewSource), [previewSource]);
+
+  /* ---------------- editing ---------------- */
+
+  const snapshot = (force: boolean) => {
+    const now = Date.now();
+    if (!force && now - lastSnap.current < 1200) return;
+    lastSnap.current = now;
+    const stack = undo.current;
+    if (stack.length && stack[stack.length - 1].text === textRef.current) return;
+    stack.push({text: textRef.current, sel: {...sel.current}});
+    if (stack.length > HISTORY_LIMIT) stack.shift();
+    redo.current = [];
+  };
+
+  const onChangeText = (t: string) => {
+    snapshot(false);
+    setText(t);
+    setDirty(true);
+  };
+
+  const onSelectionChange = (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+    sel.current = e.nativeEvent.selection;
+    if (forcedSel) setForcedSel(undefined);
+  };
+
+  const placeCursor = (start: number, end?: number) => {
+    const s = {start, end: end === undefined ? start : end};
+    sel.current = s;
+    setForcedSel(s);
+    setTimeout(() => editor.current && editor.current.focus(), 30);
+  };
+
+  const insertSnippet = (snippet: string) => {
+    snapshot(true);
+    const r = applySnippet(textRef.current, sel.current, snippet);
+    setText(r.text);
+    setDirty(true);
+    placeCursor(r.cursor, r.selectionEnd);
+  };
+
+  const doUndo = () => {
+    const prev = undo.current.pop();
+    if (!prev) return;
+    redo.current.push({text: textRef.current, sel: {...sel.current}});
+    setText(prev.text);
+    setDirty(true);
+    placeCursor(prev.sel.start, prev.sel.end);
+  };
+
+  const doRedo = () => {
+    const next = redo.current.pop();
+    if (!next) return;
+    undo.current.push({text: textRef.current, sel: {...sel.current}});
+    setText(next.text);
+    setDirty(true);
+    placeCursor(next.sel.start, next.sel.end);
+  };
+
+  /* ---------------- files ---------------- */
+
+  const writeTo = async (target: string) => {
+    setBusy(true);
+    try {
+      await writeText(target, textRef.current);
+      setPath(target);
+      setDirty(false);
+      setStatus('Saved ' + basename(target) + ' at ' + timeNow());
+      await pushRecent(target);
+      saveDraft({path: target, text: textRef.current, dirty: false, savedAt: Date.now()});
+      return true;
+    } catch (e) {
+      setStatus('Save failed: ' + errText(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async (then?: () => void) => {
+    if (!canWrite()) {
+      setStatus('Saving is not available: the file module did not load.');
+      return;
+    }
+    if (!path) {
+      setSavePrompt({then});
+      return;
+    }
+    if (await writeTo(path)) then && then();
+  };
+
+  const onSaveAs = async (name: string, then?: () => void) => {
+    setSavePrompt(null);
+    const clean = name.replace(/[\\/:*?"<>|]/g, '-').replace(/\.(md|markdown|txt)$/i, '').trim() || 'Untitled';
+    await mkdirs(settings.vaultDir);
+    const target = settings.vaultDir + '/' + clean + '.md';
+    const go = async () => {
+      if (await writeTo(target)) then && then();
+    };
+    if (await exists(target)) {
+      setConfirm({
+        title: '"' + clean + '.md" exists',
+        message: 'Replace it with this note?',
+        buttons: [
+          {label: 'Cancel', onPress: () => {}},
+          {label: 'Replace', onPress: go},
+        ],
+      });
+    } else {
+      go();
+    }
+  };
+
+  /** Runs `action` after the user saves or discards unsaved changes. */
+  const guardUnsaved = (action: () => void) => {
+    if (!dirty || !textRef.current.trim()) {
+      action();
+      return;
+    }
+    setConfirm({
+      title: 'Save changes to ' + (path ? basename(path) : 'this note') + '?',
+      buttons: [
+        {label: 'Cancel', onPress: () => {}},
+        {label: 'Discard', onPress: action},
+        {label: 'Save', onPress: () => save(action)},
+      ],
+    });
+  };
+
+  const openFile = async (p: string) => {
+    try {
+      const t = await readText(p);
+      setPath(p);
+      setText(t);
+      setPreviewSource(t);
+      setDirty(false);
+      undo.current = [];
+      redo.current = [];
+      setScreen('editor');
+      setStatus('Opened ' + basename(p));
+      await pushRecent(p);
+      saveDraft({path: p, text: t, dirty: false, savedAt: Date.now()});
+    } catch (e) {
+      setStatus('Could not open: ' + errText(e));
+      setScreen('editor');
+    }
+  };
+
+  const newFile = async (p: string) => {
+    const title = basename(p).replace(/\.md$/i, '');
+    const t = '# ' + title + '\n\n';
+    setPath(p);
+    setText(t);
+    setPreviewSource(t);
+    setDirty(true);
+    undo.current = [];
+    redo.current = [];
+    setScreen('editor');
+    setMode(m => (m === 'view' ? 'split' : m));
+    if (await writeTo(p)) placeCursor(t.length);
+  };
+
+  /* ---------------- note insertion ---------------- */
+
+  const formulaForInsert = (): {tex: string; display: boolean} | null => {
+    const t = textRef.current;
+    const {start, end} = sel.current;
+    if (end > start) return textToTeX(t.slice(start, end));
+    const m = mathAtOffset(t, start);
+    return m ? {tex: m.tex, display: m.display} : null;
+  };
+
+  const doInsert = async () => {
+    if (!inNote) {
+      setStatus('Open Mathdown from a NOTE file to insert formulas. (DOC files cannot hold images.)');
+      return;
+    }
+    const f = formulaForInsert();
+    if (!f) {
+      setStatus('Put the cursor inside a formula, or select TeX, then tap Insert.');
+      return;
+    }
+    setBusy(true);
+    setStatus('Rendering formula…');
+    try {
+      session.setContext(parseMarkdown(textRef.current), settings.preamble);
+      const res = await insertFormula(f.tex, f.display, settings);
+      setStatus(res.message);
+      if (res.ok && settings.closeAfterInsert) {
+        await saveDraft({path, text: textRef.current, dirty, savedAt: Date.now(), selection: sel.current.start});
+        PluginManager.closePluginView();
+      }
+    } catch (e) {
+      setStatus('Insert failed: ' + errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const close = async () => {
+    await saveDraft({path, text: textRef.current, dirty, savedAt: Date.now(), selection: sel.current.start});
+    PluginManager.closePluginView();
+  };
+
+  const onProgress = useCallback((d: number, t: number) => {
+    setProgress(prev => (prev[0] === d && prev[1] === t ? prev : [d, t]));
+  }, []);
+
+  const jumpTo = useCallback(
+    (line: number) => {
+      const off = lineOffset(textRef.current, line);
+      setMode(m => (m === 'view' ? 'edit' : m));
+      placeCursor(off);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  /* ---------------- screens ---------------- */
+
+  if (!ready) {
+    return (
+      <View style={[S.fill, {justifyContent: 'center', alignItems: 'center'}]}>
+        <StatusBar barStyle="dark-content" backgroundColor={PAPER} />
+        <Text style={{fontSize: 20, color: INK}}>Mathdown</Text>
+        <Text style={S.hint}>Loading…</Text>
+      </View>
+    );
+  }
+
+  if (screen === 'files') {
+    return (
+      <FileBrowser
+        root={settings.vaultDir}
+        currentPath={path}
+        canWrite={canWrite()}
+        onClose={() => setScreen('editor')}
+        onOpen={p => guardUnsaved(() => openFile(p))}
+        onNew={p => guardUnsaved(() => newFile(p))}
+        onRenamed={(from, to) => {
+          if (from === path) setPath(to);
+        }}
+        onDeleted={p => {
+          if (p === path) {
+            setPath(null);
+            setDirty(true);
+            setStatus('The open note was deleted; its text is still here.');
+          }
+        }}
+      />
+    );
+  }
+
+  if (screen === 'settings') {
+    return (
+      <SettingsScreen
+        settings={settings}
+        onClose={() => setScreen('editor')}
+        onSave={async s => {
+          setSettings(s);
+          setScreen('editor');
+          const ok = await saveSettings(s);
+          setStatus(ok ? 'Settings saved.' : 'Settings are active but could not be stored.');
+        }}
+      />
+    );
+  }
+
+  const title = (path ? basename(path) : 'Untitled') + (dirty ? ' •' : '');
+  const words = (text.match(/\S+/g) || []).length;
+  const editorFont = settings.fontSize;
+
+  const editorView = (
+    <TextInput
+      ref={editor}
+      style={{
+        flex: 1,
+        fontFamily: MONO,
+        fontSize: editorFont,
+        lineHeight: Math.round(editorFont * 1.4),
+        color: INK,
+        padding: 12,
+        textAlignVertical: 'top',
+        backgroundColor: PAPER,
+      }}
+      value={text}
+      onChangeText={onChangeText}
+      onSelectionChange={onSelectionChange}
+      selection={forcedSel}
+      multiline
+      scrollEnabled
+      autoCapitalize="none"
+      autoCorrect={false}
+      spellCheck={false}
+      keyboardType="default"
+      importantForAutofill="no"
+      placeholder="Type Markdown here. Math: $x^2$ or $$ … $$"
+      placeholderTextColor={GRAY}
+      underlineColorAndroid="transparent"
+      textBreakStrategy="simple"
+    />
+  );
+
+  const previewView = (
+    <Preview
+      blocks={blocks}
+      session={session}
+      fontSize={settings.fontSize}
+      mathScale={settings.mathScale}
+      preamble={settings.preamble}
+      width={width}
+      onJump={jumpTo}
+      onProgress={onProgress}
+    />
+  );
+
+  const snippetBar =
+    mode !== 'view' && showSnippets ? (
+      <View style={{borderTopWidth: 2, borderColor: INK, backgroundColor: PAPER}}>
+        <ScrollView horizontal keyboardShouldPersistTaps="always" overScrollMode="never" showsHorizontalScrollIndicator={false}>
+          <View style={[S.row, {paddingHorizontal: 4, paddingTop: 4}]}>
+            {SNIPPET_GROUPS.map((g, i) => (
+              <Button key={g.name} small label={g.name} active={i === group} onPress={() => setGroup(i)} />
+            ))}
+          </View>
+        </ScrollView>
+        <ScrollView horizontal keyboardShouldPersistTaps="always" overScrollMode="never">
+          <View style={[S.row, {padding: 4}]}>
+            {SNIPPET_GROUPS[group].items.map(it => (
+              <Button key={it.label + it.insert} small label={it.label} onPress={() => insertSnippet(it.insert)} />
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+    ) : null;
+
+  return (
+    <View style={[S.fill, {paddingBottom: kbPad}]} onLayout={onRootLayout}>
+      <StatusBar barStyle="dark-content" backgroundColor={PAPER} />
+      {/* Top bar */}
+      <View style={S.bar}>
+        <Button label="Files" onPress={() => setScreen('files')} />
+        <Text style={S.barTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        <Segmented<Mode>
+          value={mode}
+          onChange={m => {
+            setMode(m);
+            if (m !== 'edit') setPreviewSource(textRef.current);
+          }}
+          options={[
+            {value: 'edit', label: 'Edit'},
+            {value: 'split', label: 'Split'},
+            {value: 'view', label: 'View'},
+          ]}
+        />
+        <Button label="Save" disabled={busy || (!dirty && !!path)} onPress={() => save()} />
+        <Button label="Insert ∑" disabled={busy} onPress={doInsert} />
+        <Button label="⚙" onPress={() => setScreen('settings')} />
+        <Button label="✕" onPress={() => guardUnsaved(close)} />
+      </View>
+
+      {/* Second bar */}
+      <View style={[S.row, {paddingHorizontal: 6, paddingVertical: 3, borderBottomWidth: 1, borderColor: INK}]}>
+        {mode !== 'view' ? (
+          <>
+            <Button small label="↶ Undo" onPress={doUndo} />
+            <Button small label="↷ Redo" onPress={doRedo} />
+            <Button small label={showSnippets ? 'Hide symbols' : 'Symbols'} onPress={() => setShowSnippets(v => !v)} />
+          </>
+        ) : null}
+        {mode !== 'edit' ? <Button small label="Render" onPress={() => setPreviewSource(textRef.current)} /> : null}
+        <Button
+          small
+          label="Help"
+          onPress={() =>
+            guardUnsaved(() => {
+              setPath(null);
+              setText(WELCOME);
+              setPreviewSource(WELCOME);
+              setDirty(false);
+              setMode('view');
+            })
+          }
+        />
+        <Text style={[S.hint, {flex: 1, textAlign: 'right', marginRight: 6}]} numberOfLines={1}>
+          {progress[1] ? 'Rendering ' + progress[0] + '/' + progress[1] + ' · ' : ''}
+          {words} words
+        </Text>
+      </View>
+
+      {!canWrite() ? (
+        <View style={S.banner}>
+          <Text style={S.bannerText}>
+            File module not loaded: you can read and preview, but not save. Reinstall mathdown.snplg.
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Body */}
+      <View style={{flex: 1}}>
+        {mode === 'edit' ? editorView : null}
+        {mode === 'view' ? previewView : null}
+        {mode === 'split' ? (
+          <>
+            <View style={{flex: 1}}>{editorView}</View>
+            <View style={{height: 3, backgroundColor: INK}} />
+            <View style={{flex: 1}}>{previewView}</View>
+          </>
+        ) : null}
+      </View>
+
+      {snippetBar}
+
+      {/* Status line */}
+      {status ? (
+        <View style={{borderTopWidth: 1, borderColor: INK, paddingHorizontal: 10, paddingVertical: 5, flexDirection: 'row', alignItems: 'center'}}>
+          <Text style={[S.bannerText, {flex: 1}]} numberOfLines={2}>
+            {status}
+          </Text>
+          <Button small label="OK" onPress={() => setStatus('')} />
+        </View>
+      ) : null}
+
+      <Prompt
+        visible={!!savePrompt}
+        title="Save note as"
+        message={'In ' + settings.vaultDir.replace('/storage/emulated/0/', '') + ' (".md" is added).'}
+        initial={(() => {
+          const h = /^#\s+(.+)$/m.exec(text);
+          return h ? h[1].replace(/\$[^$]*\$/g, '').trim().slice(0, 60) : '';
+        })()}
+        okLabel="Save"
+        onOk={v => onSaveAs(v, savePrompt ? savePrompt.then : undefined)}
+        onCancel={() => setSavePrompt(null)}
+      />
+      <Confirm spec={confirm} onClose={() => setConfirm(null)} />
+    </View>
+  );
+}
+
+export default App;
