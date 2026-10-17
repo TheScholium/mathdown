@@ -51,7 +51,9 @@ export default function SettingsScreen(props: {settings: Settings; onSave: (s: S
           </View>
         ) : null}
 
-        <Row title="Notes folder" hint={'Markdown files are kept here. Default: ' + DEFAULT_VAULT}>
+        <Row
+          title="Vault folder"
+          hint={'Your notes folder. To share notes with Obsidian, use the folder you open as the vault on your computer. [[Links]] and ![[embeds]] are found anywhere inside it. Default: ' + DEFAULT_VAULT}>
           <TextInput
             value={s.vaultDir}
             onChangeText={v => set('vaultDir', v.trim())}
@@ -61,6 +63,13 @@ export default function SettingsScreen(props: {settings: Settings; onSave: (s: S
           />
           <View style={[S.row, {marginTop: 6}]}>
             <Button small label="Use default" onPress={() => set('vaultDir', DEFAULT_VAULT)} />
+          </View>
+        </Row>
+
+        <Row title="Auto-save" hint="Save a note that already has a file 2.5 s after you stop typing, and before you follow a link. Untitled notes still ask for a name.">
+          <View style={S.row}>
+            <InkSwitch value={s.autoSave} onValueChange={v => set('autoSave', v)} />
+            <Text style={{marginLeft: 10, color: INK, fontSize: 16}}>{s.autoSave ? 'On' : 'Off (use Save)'}</Text>
           </View>
         </Row>
 
@@ -125,7 +134,7 @@ export default function SettingsScreen(props: {settings: Settings; onSave: (s: S
           <Button label="Reset all to defaults" onPress={() => setS({...DEFAULT_SETTINGS})} />
         </View>
         <Text style={[S.hint, {marginTop: 20, color: GRAY}]}>
-          Mathdown 1.0 · Rendering: MathJax 3 (TeX → SVG) and a JavaScript rasterizer, fully offline.
+          Mathdown 1.1 · Rendering: MathJax 3 (TeX → SVG) and a JavaScript rasterizer, fully offline.
         </Text>
       </ScrollView>
     </View>

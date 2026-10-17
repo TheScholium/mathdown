@@ -131,6 +131,50 @@ public class MathdownFilesModule extends ReactContextBaseJavaModule {
         }
     }
 
+    /**
+     * Lists all files under a folder, recursively: [{path, rel, name, size, modified}].
+     * Skips hidden files and folders (".obsidian", ".trash", ".git", ...).
+     * Stops after maxFiles entries.
+     */
+    @ReactMethod
+    public void listTree(String root, double maxFiles, Promise promise) {
+        try {
+            WritableArray out = Arguments.createArray();
+            File base = new File(root);
+            int[] count = new int[] {0};
+            int limit = maxFiles > 0 ? (int) maxFiles : 20000;
+            String basePath = base.getAbsolutePath();
+            walk(base, basePath, out, count, limit, 0);
+            promise.resolve(out);
+        } catch (Throwable t) {
+            promise.reject("ELIST", describe(t));
+        }
+    }
+
+    private static void walk(File dir, String basePath, WritableArray out, int[] count, int limit, int depth) {
+        if (depth > 24 || count[0] >= limit) return;
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            if (count[0] >= limit) return;
+            String name = f.getName();
+            if (name.startsWith(".")) continue;
+            if (f.isDirectory()) {
+                walk(f, basePath, out, count, limit, depth + 1);
+            } else {
+                String abs = f.getAbsolutePath();
+                WritableMap m = Arguments.createMap();
+                m.putString("path", abs);
+                m.putString("rel", abs.length() > basePath.length() + 1 ? abs.substring(basePath.length() + 1) : name);
+                m.putString("name", name);
+                m.putDouble("size", (double) f.length());
+                m.putDouble("modified", (double) f.lastModified());
+                out.pushMap(m);
+                count[0]++;
+            }
+        }
+    }
+
     @ReactMethod
     public void rename(String from, String to, Promise promise) {
         try {

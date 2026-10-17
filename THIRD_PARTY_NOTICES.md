@@ -6,6 +6,7 @@ Mathdown bundles or uses the following software. Each keeps its own license.
 |---|---|---|
 | [MathJax](https://github.com/mathjax/MathJax-src) 3.2.2 | Apache-2.0 | TeX layout and fonts (bundled) |
 | [markdown-it](https://github.com/markdown-it/markdown-it) 14 | MIT | Markdown parser (bundled) |
+| [markdown-it-footnote](https://github.com/markdown-it/markdown-it-footnote) 4 | MIT | Footnotes (bundled) |
 | [fflate](https://github.com/101arrowz/fflate) 0.8 | MIT | PNG compression (bundled) |
 | [React](https://react.dev) / [React Native](https://reactnative.dev) 0.79 | MIT | UI runtime (provided by the Supernote PluginHost) |
 | [sn-plugin-lib](https://www.npmjs.com/package/sn-plugin-lib) | MIT | Supernote plugin SDK |

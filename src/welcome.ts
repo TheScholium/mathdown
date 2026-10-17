@@ -43,6 +43,25 @@ $$ \newcommand{\avg}[1]{\left\langle #1 \right\rangle} \avg{x^2} - \avg{x}^2 = \
 
 > Quotes can hold math too: $\oint \vb{E}\cdot \mathrm{d}\vb{A} = Q/\varepsilon_0$, and so can $\avg{x}$.
 
+## Obsidian syntax
+
+Mathdown reads the same notes as Obsidian. Link with {BT}[[Note name]]{BT} or {BT}[[Note#Heading|shown text]]{BT}. Tap a link to open the note; **← Back** returns. A link to a note that does not exist offers to create it.
+
+> [!theorem] Cauchy–Schwarz
+> For $u, v$ in an inner product space, $|\langle u, v\rangle| \le \|u\|\,\|v\|$.
+
+> [!proof]-
+> Tap "Proof." to fold this open. For $v \neq 0$, expand $0 \le \|u - t v\|^2$ with $t = \langle v, u\rangle / \|v\|^2$.
+
+> [!tip] Callouts
+> Every Obsidian callout works. {BT}theorem{BT}, {BT}lemma{BT}, {BT}definition{BT} and {BT}proof{BT} get a math style.
+
+Also supported: ==highlights==, #tags, footnotes,[^1] embeds such as {BT}![[Note]]{BT}, {BT}![[Note#Heading]]{BT} or {BT}![[figure.png|300]]{BT}, %%this comment is hidden%% comments, block IDs ({BT}^id{BT}), and properties at the top of a note. Tap a task box to tick it.
+
+- [ ] Try it
+
+[^1]: Like this one.
+
 ## Put formulas into a handwritten note
 
 1. Put the cursor inside a formula (or select some TeX).
@@ -55,7 +74,7 @@ Or type TeX into a NOTE text box, lasso it, and tap **Render TeX** in the lasso 
 
 - **Split** shows the editor and the preview together. **View** shows only the preview; long-press a paragraph to jump to it in the editor.
 - The snippet bar above the keyboard inserts {BT}\frac{}{}{BT}, Greek letters, matrices and more.
-- Notes are saved in {BT}Document/Mathdown{BT}. Unsaved text is kept as a draft if Mathdown closes.
+- Notes are saved in {BT}Document/Mathdown{BT} (set your vault folder in ⚙). Notes with a file are saved automatically; unsaved text is kept as a draft if Mathdown closes.
 `;
 
 export const WELCOME = RAW.replace(/\{BT\}/g, '`');

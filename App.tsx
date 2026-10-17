@@ -16,9 +16,10 @@ import {
   View,
 } from 'react-native';
 import {PluginManager} from 'sn-plugin-lib';
-import {mathAtOffset, parseMarkdown} from './engine';
+import type {LinkTarget} from './engine';
+import {mathAtOffset, newNotePath, parseMarkdown} from './engine';
 import FileBrowser from './src/FileBrowser';
-import Preview from './src/Preview';
+import Preview, {PreviewActions} from './src/Preview';
 import SettingsScreen from './src/SettingsScreen';
 import {on} from './src/bus';
 import {getSession, insertFormula, isInNote, textToTeX} from './src/note';
@@ -41,6 +42,7 @@ import {
 } from './src/storage';
 import {GRAY, INK, MONO, PAPER, S} from './src/theme';
 import {Button, Confirm, ConfirmSpec, Prompt, Segmented} from './src/ui';
+import {getVault, invalidateNote, refreshVault, resolve} from './src/vault';
 import {WELCOME} from './src/welcome';
 
 type Mode = 'edit' | 'split' | 'view';
@@ -48,6 +50,18 @@ type Screen = 'editor' | 'files' | 'settings';
 type Sel = {start: number; end: number};
 
 const HISTORY_LIMIT = 200;
+const BACK_LIMIT = 50;
+
+/** Toggles "- [ ]" / "- [x]" on one source line (also inside "> " quotes and callouts). */
+export function toggleTaskLine(text: string, line: number): string | null {
+  const lines = text.split('\n');
+  const l = lines[line];
+  if (l === undefined) return null;
+  const m = /^((?:\s*>)*\s*(?:[-*+]|\d+[.)])\s+)\[(.)\]/.exec(l);
+  if (!m) return null;
+  lines[line] = m[1] + '[' + (m[2] === ' ' ? 'x' : ' ') + ']' + l.slice(m[0].length);
+  return lines.join('\n');
+}
 
 function lineOffset(text: string, line: number): number {
   let off = 0;
@@ -91,6 +105,8 @@ function App(): React.JSX.Element {
   const [layoutH, setLayoutH] = useState(0);
   const [maxH, setMaxH] = useState(0);
   const [width, setWidth] = useState(700);
+  const [history, setHistory] = useState<string[]>([]);
+  const [anchor, setAnchor] = useState<{sub: string; nonce: number} | null>(null);
 
   const sel = useRef<Sel>({start: 0, end: 0});
   const editor = useRef<TextInput>(null);
@@ -110,6 +126,7 @@ function App(): React.JSX.Element {
     (async () => {
       const s = await loadSettings();
       setSettings(s);
+      refreshVault(s.vaultDir);
       setMode(s.autoPreview ? 'split' : 'edit');
       const draft = await loadDraft();
       if (draft && (draft.dirty || draft.path)) {
@@ -194,10 +211,15 @@ function App(): React.JSX.Element {
   useEffect(() => {
     if (!ready) return;
     const t = setTimeout(() => {
-      saveDraft({path, text, dirty, savedAt: Date.now(), selection: sel.current.start});
+      if (settings.autoSave && path && dirty && canWrite()) {
+        writeTo(path, true);
+      } else {
+        saveDraft({path, text, dirty, savedAt: Date.now(), selection: sel.current.start});
+      }
     }, 2500);
     return () => clearTimeout(t);
-  }, [text, path, dirty, ready]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, path, dirty, ready, settings.autoSave]);
 
   /* ---------------- live preview ---------------- */
 
@@ -247,6 +269,18 @@ function App(): React.JSX.Element {
 
   const insertSnippet = (snippet: string) => {
     snapshot(true);
+    // Front matter is valid only at the top of the file.
+    if (snippet.startsWith('---\n')) {
+      if (/^---[ \t]*\r?\n/.test(textRef.current)) {
+        setStatus('This note already has properties.');
+        return;
+      }
+      const r0 = applySnippet(textRef.current, {start: 0, end: 0}, snippet);
+      setText(r0.text);
+      setDirty(true);
+      placeCursor(r0.cursor);
+      return;
+    }
     const r = applySnippet(textRef.current, sel.current, snippet);
     setText(r.text);
     setDirty(true);
@@ -273,21 +307,26 @@ function App(): React.JSX.Element {
 
   /* ---------------- files ---------------- */
 
-  const writeTo = async (target: string) => {
-    setBusy(true);
+  const writeTo = async (target: string, quiet = false, content?: string) => {
+    if (!quiet) setBusy(true);
+    const written = content !== undefined ? content : textRef.current;
     try {
-      await writeText(target, textRef.current);
+      const isNew = !getVault() || !getVault()!.byPath.has(target);
+      await writeText(target, written);
       setPath(target);
-      setDirty(false);
-      setStatus('Saved ' + basename(target) + ' at ' + timeNow());
+      // Typing during the write keeps the note dirty.
+      setDirty(textRef.current !== written);
+      if (!quiet) setStatus('Saved ' + basename(target) + ' at ' + timeNow());
+      invalidateNote(target);
+      if (isNew) refreshVault(settings.vaultDir);
       await pushRecent(target);
-      saveDraft({path: target, text: textRef.current, dirty: false, savedAt: Date.now()});
+      saveDraft({path: target, text: written, dirty: false, savedAt: Date.now()});
       return true;
     } catch (e) {
       setStatus('Save failed: ' + errText(e));
       return false;
     } finally {
-      setBusy(false);
+      if (!quiet) setBusy(false);
     }
   };
 
@@ -341,11 +380,28 @@ function App(): React.JSX.Element {
     });
   };
 
-  const openFile = async (p: string) => {
+  /**
+   * Runs `action` when it is safe to leave the current note: a note that has
+   * a file is saved without asking (like Obsidian); an untitled one asks.
+   */
+  const leaveThen = (action: () => void) => {
+    if (!dirty || !textRef.current.trim()) {
+      action();
+    } else if (path && canWrite()) {
+      writeTo(path, true).then(ok => ok && action());
+    } else {
+      guardUnsaved(action);
+    }
+  };
+
+  const openFile = async (p: string, opts?: {push?: boolean; sub?: string | null}) => {
     try {
       const t = await readText(p);
+      if (opts && opts.push && path && path !== p) setHistory(h => h.concat(path).slice(-BACK_LIMIT));
+      setAnchor(opts && opts.sub ? {sub: opts.sub, nonce: Date.now()} : null);
       setPath(p);
       setText(t);
+      textRef.current = t;
       setPreviewSource(t);
       setDirty(false);
       undo.current = [];
@@ -360,9 +416,11 @@ function App(): React.JSX.Element {
     }
   };
 
-  const newFile = async (p: string) => {
+  const newFile = async (p: string, opts?: {push?: boolean; empty?: boolean}) => {
     const title = basename(p).replace(/\.md$/i, '');
-    const t = '# ' + title + '\n\n';
+    const t = opts && opts.empty ? '' : '# ' + title + '\n\n';
+    if (opts && opts.push && path && path !== p) setHistory(h => h.concat(path).slice(-BACK_LIMIT));
+    setAnchor(null);
     setPath(p);
     setText(t);
     setPreviewSource(t);
@@ -371,8 +429,87 @@ function App(): React.JSX.Element {
     redo.current = [];
     setScreen('editor');
     setMode(m => (m === 'view' ? 'split' : m));
-    if (await writeTo(p)) placeCursor(t.length);
+    // textRef updates only on the next render, so pass the new text explicitly.
+    textRef.current = t;
+    if (await writeTo(p, false, t)) placeCursor(t.length);
   };
+
+  /* ---------------- links ---------------- */
+
+  const goBack = () => {
+    const prev = history[history.length - 1];
+    if (!prev) return;
+    leaveThen(() => {
+      setHistory(h => h.slice(0, -1));
+      openFile(prev);
+    });
+  };
+
+  const onLink = (target: LinkTarget, fromPath: string | null) => {
+    const entry = target.page ? resolve(target, fromPath) : null;
+    // A link to a heading or block in this note: scroll there.
+    if (!target.page || (entry && entry.path === path)) {
+      if (target.sub) {
+        setAnchor({sub: target.sub, nonce: Date.now()});
+        setPreviewSource(textRef.current);
+        setMode(m => (m === 'edit' ? 'view' : m));
+      }
+      return;
+    }
+    if (entry && entry.isNote) {
+      leaveThen(() => openFile(entry.path, {push: true, sub: target.sub}));
+      return;
+    }
+    if (entry) {
+      setStatus('Attachment: ' + entry.rel);
+      return;
+    }
+    const vault = getVault();
+    if (!vault) {
+      setStatus('The vault is still loading. Try again in a moment.');
+      return;
+    }
+    if (/\.[A-Za-z0-9]{1,6}$/.test(target.page) && !/\.md$/i.test(target.page)) {
+      setStatus('Not found in the vault: ' + target.page);
+      return;
+    }
+    const p = newNotePath(vault, target.page);
+    setConfirm({
+      title: 'Create "' + basename(p).replace(/\.md$/i, '') + '"?',
+      message: 'No note with this name exists. Mathdown creates it in ' + vault.root.replace('/storage/emulated/0/', '') + '.',
+      buttons: [
+        {label: 'Cancel', onPress: () => {}},
+        {label: 'Create', onPress: () => leaveThen(() => newFile(p, {push: true, empty: true}))},
+      ],
+    });
+  };
+
+  const onToggleTask = (line: number) => {
+    if (textRef.current !== previewSource) {
+      setPreviewSource(textRef.current);
+      setStatus('The preview was out of date. Tap the box again.');
+      return;
+    }
+    const next = toggleTaskLine(textRef.current, line);
+    if (next === null) return;
+    snapshot(true);
+    setText(next);
+    setPreviewSource(next);
+    setDirty(true);
+  };
+
+  // Stable callbacks for the preview, so that it does not re-render on every key stroke.
+  const handlers = useRef({onLink, onToggleTask});
+  handlers.current = {onLink, onToggleTask};
+  const actions: PreviewActions = useMemo(
+    () => ({
+      onLink: (t, from) => handlers.current.onLink(t, from),
+      onToggleTask: line => handlers.current.onToggleTask(line),
+      onTag: tag => setStatus('#' + tag + ': tag search comes in Mathdown 1.2.'),
+      onExternal: href => setStatus('Link: ' + href + ' (Mathdown has no internet access.)'),
+    }),
+    [],
+  );
 
   /* ---------------- note insertion ---------------- */
 
@@ -449,12 +586,16 @@ function App(): React.JSX.Element {
         currentPath={path}
         canWrite={canWrite()}
         onClose={() => setScreen('editor')}
-        onOpen={p => guardUnsaved(() => openFile(p))}
-        onNew={p => guardUnsaved(() => newFile(p))}
+        onOpen={p => leaveThen(() => openFile(p, {push: true}))}
+        onNew={p => leaveThen(() => newFile(p, {push: true}))}
         onRenamed={(from, to) => {
           if (from === path) setPath(to);
+          setHistory(h => h.map(x => (x === from ? to : x)));
+          refreshVault(settings.vaultDir);
         }}
         onDeleted={p => {
+          setHistory(h => h.filter(x => x !== p));
+          refreshVault(settings.vaultDir);
           if (p === path) {
             setPath(null);
             setDirty(true);
@@ -471,6 +612,7 @@ function App(): React.JSX.Element {
         settings={settings}
         onClose={() => setScreen('editor')}
         onSave={async s => {
+          if (s.vaultDir !== settings.vaultDir) refreshVault(s.vaultDir);
           setSettings(s);
           setScreen('editor');
           const ok = await saveSettings(s);
@@ -523,6 +665,9 @@ function App(): React.JSX.Element {
       mathScale={settings.mathScale}
       preamble={settings.preamble}
       width={width}
+      notePath={path}
+      actions={actions}
+      anchor={anchor}
       onJump={jumpTo}
       onProgress={onProgress}
     />
@@ -572,11 +717,12 @@ function App(): React.JSX.Element {
         <Button label="Save" disabled={busy || (!dirty && !!path)} onPress={() => save()} />
         <Button label="Insert ∑" disabled={busy} onPress={doInsert} />
         <Button label="⚙" onPress={() => setScreen('settings')} />
-        <Button label="✕" onPress={() => guardUnsaved(close)} />
+        <Button label="✕" onPress={() => leaveThen(close)} />
       </View>
 
       {/* Second bar */}
       <View style={[S.row, {paddingHorizontal: 6, paddingVertical: 3, borderBottomWidth: 1, borderColor: INK}]}>
+        {history.length ? <Button small label="← Back" onPress={goBack} /> : null}
         {mode !== 'view' ? (
           <>
             <Button small label="↶ Undo" onPress={doUndo} />
@@ -589,7 +735,8 @@ function App(): React.JSX.Element {
           small
           label="Help"
           onPress={() =>
-            guardUnsaved(() => {
+            leaveThen(() => {
+              if (path) setHistory(h => h.concat(path).slice(-BACK_LIMIT));
               setPath(null);
               setText(WELCOME);
               setPreviewSource(WELCOME);

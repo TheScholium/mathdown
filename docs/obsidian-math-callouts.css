@@ -1,0 +1,57 @@
+/*
+ * Mathdown math callouts for Obsidian.
+ *
+ * Makes [!theorem], [!definition], [!proof] and related callouts look the
+ * same in Obsidian as in Mathdown on the Supernote.
+ *
+ * Install: copy this file to <vault>/.obsidian/snippets/, then turn it on in
+ * Settings > Appearance > CSS snippets. It also works pasted into a theme.
+ */
+
+/* Theorem-like: box, bold title, italic body (LaTeX "plain" style). */
+.callout:is([data-callout="theorem"], [data-callout="lemma"], [data-callout="corollary"],
+  [data-callout="proposition"], [data-callout="claim"], [data-callout="conjecture"],
+  [data-callout="law"], [data-callout="principle"]) {
+  --callout-color: var(--mono-rgb-100);
+  --callout-icon: lucide-sigma;
+  background: transparent;
+  border: 2px solid rgba(var(--callout-color), 0.85);
+  border-radius: 4px;
+}
+.callout:is([data-callout="theorem"], [data-callout="lemma"], [data-callout="corollary"],
+  [data-callout="proposition"], [data-callout="claim"], [data-callout="conjecture"],
+  [data-callout="law"], [data-callout="principle"]) > .callout-content {
+  font-style: italic;
+}
+
+/* Definition-like: box, bold title, upright body. */
+.callout:is([data-callout="definition"], [data-callout="def"], [data-callout="axiom"],
+  [data-callout="postulate"], [data-callout="notation"]) {
+  --callout-color: var(--mono-rgb-100);
+  --callout-icon: lucide-book-open;
+  background: transparent;
+  border: 2px solid rgba(var(--callout-color), 0.85);
+  border-radius: 4px;
+}
+
+/* Proof-like: no box, italic "Proof." title, tombstone at the end. */
+.callout:is([data-callout="proof"], [data-callout="solution"], [data-callout="derivation"]) {
+  --callout-color: var(--mono-rgb-100);
+  --callout-icon: none;
+  background: transparent;
+  border: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+.callout:is([data-callout="proof"], [data-callout="solution"], [data-callout="derivation"]) .callout-icon {
+  display: none;
+}
+.callout:is([data-callout="proof"], [data-callout="solution"], [data-callout="derivation"]) .callout-title-inner {
+  font-style: italic;
+  font-weight: normal;
+}
+.callout:is([data-callout="proof"], [data-callout="solution"], [data-callout="derivation"]) > .callout-content::after {
+  content: "\220E";
+  display: block;
+  text-align: right;
+}

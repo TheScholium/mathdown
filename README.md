@@ -1,15 +1,15 @@
 # Mathdown for Supernote
 
-Mathdown is a Supernote plugin. It is a Markdown editor that renders TeX math on the device, with no network connection. It also puts typeset formulas into handwritten notes.
+Mathdown is a Supernote plugin. It is a Markdown editor that renders TeX math on the device, with no network connection. It reads and writes the same notes as Obsidian (links, embeds, callouts, properties), and it puts typeset formulas into handwritten notes.
 
 [![Build](https://github.com/TheScholium/mathdown/actions/workflows/build.yml/badge.svg)](https://github.com/TheScholium/mathdown/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/TheScholium/mathdown)](https://github.com/TheScholium/mathdown/releases/latest)
 
 **Download:** [`mathdown.snplg`](https://github.com/TheScholium/mathdown/releases/latest/download/mathdown.snplg) · Tested on a Supernote Nomad (A6 X2) with Chauvet 3.30.45.
 
-| Split view | Preview | Formula rendering |
+| Obsidian note (View) | Split view | Formula rendering |
 |---|---|---|
-| ![Split view](docs/screenshot-split.png) | ![Preview](docs/screenshot-view.png) | ![Formulas](docs/formula-samples.png) |
+| ![Obsidian note](docs/screenshot-obsidian.png) | ![Split view](docs/screenshot-split.png) | ![Formulas](docs/formula-samples.png) |
 
 ## Features
 
@@ -23,6 +23,13 @@ Mathdown is a Supernote plugin. It is a Markdown editor that renders TeX math on
 - **Safe editing.** Undo and redo, an auto-saved draft (unsaved text comes back if the plugin closes), atomic file writes, and a prompt before you lose changes.
 - **E-ink design.** Black on white, no animations, large touch targets, few screen refreshes while math renders.
 - **Markdown.** Headings, emphasis, strike-through, inline code, code blocks, block quotes, nested lists, task lists, tables (with alignment) and horizontal rules.
+- **Obsidian-flavored Markdown** (1.1):
+  - `[[wikilinks]]` with `#Heading`, `#^block` and `|alias`, and Markdown links to notes. Tap to open; **← Back** returns. Links resolve the way Obsidian resolves them (by name, shortest path, or relative path). A missing note is offered for creation; it shows dashed and gray.
+  - Embeds: `![[Note]]`, `![[Note#Heading]]`, `![[Note#^id]]` (the section, with its math) and images `![[figure.png|300]]` / `![alt](path.png)`.
+  - Callouts `> [!type] Title`, foldable with `+`/`-`. Math types get a LaTeX look: `theorem`, `lemma`, `corollary`, `proposition` (boxed, italic body), `definition`, `axiom` (boxed), `proof` (italic *Proof.* and ∎). `warning`, `danger` and similar are inverted for attention on e-ink.
+  - Properties (YAML front matter), `#tags` (also nested), `==highlights==`, `%%comments%%` (hidden), block IDs `^id`, and footnotes `[^1]` / `^[inline]`.
+  - Tap a task box in the preview to tick it in the file.
+- **Auto-save** for notes that have a file (like Obsidian). Untitled notes still ask for a name.
 
 ## Requirements
 
@@ -51,21 +58,31 @@ When Mathdown first reads or saves a file, the system asks for permission. Selec
 | Insert a formula into the page | Put the cursor in the formula and tap **Insert ∑**. Then move the image with the lasso. |
 | Render a NOTE text box | Lasso the text box, then tap **Render TeX**. |
 | Open the settings | Tap **⚙**, or tap the settings button of Mathdown in **Settings > Apps > Plugins**. |
+| Follow a link | Tap it in *Split* or *View*. **← Back** returns to the note before. |
+| Make a note from a link | Tap a gray, dashed link, then **Create**. |
 | See the example note | Tap **Help**. |
 
 ### Where files go
 
 | What | Where |
 |---|---|
-| Markdown notes | `Document/Mathdown/` (change it in Settings) |
+| Markdown notes | Your vault folder: `Document/Mathdown/` by default (change it in Settings) |
 | Formula images for notes | `EXPORT/Mathdown/formula-YYYYMMDD-HHMMSS-N.png` |
 | Settings, draft, recent list | The plugin's private folder (no permission needed) |
 
-The `Document` folder syncs with Supernote Cloud and the other sync services. Thus the notes can go to an Obsidian vault on your computer.
+The `Document` folder syncs with Supernote Cloud and the other sync services.
+
+### Use with Obsidian on a computer
+
+1. Make the vault a folder that the Supernote syncs (for example `Document/Zettel` in Dropbox or Google Drive), and open that folder as a vault in Obsidian.
+2. In Mathdown, set **⚙ > Vault folder** to the same folder on the Supernote.
+3. Optional: copy [`docs/obsidian-math-callouts.css`](docs/obsidian-math-callouts.css) to `<vault>/.obsidian/snippets/` and turn it on in Obsidian (**Settings > Appearance > CSS snippets**). Then `[!theorem]`, `[!definition]` and `[!proof]` look the same on both devices.
+
+Supernote sync is manual. Tap **Sync** on the Supernote before you edit on the computer, and let the computer sync before you edit on the Supernote; otherwise the sync service makes a conflict copy. Obsidian plugins (Dataview, Canvas, ...) are not supported; their syntax shows as plain text.
 
 ### Settings
 
-- **Notes folder**, **Text size**, **Math size in preview**.
+- **Vault folder**, **Auto-save**, **Text size**, **Math size in preview**.
 - **Size of formulas inserted into a note** (pixels per em at 300 ppi; 64 px is about the size of handwriting).
 - **Live preview** on/off and its delay.
 - **Close Mathdown after inserting a formula**.
@@ -118,7 +135,8 @@ Markdown text
 
 - `engine/` is plain JavaScript with no React Native code. It runs in Hermes on the device and in Node for the tests.
 - `src/` is the React Native UI. `App.tsx` is the editor; `index.js` registers the buttons.
-- `android/app/src/main/java/com/mathdown/files/` is the native module. `sn-plugin-lib` has no "write text file" call, so this module adds `readText`, `writeText`, `writeBase64`, `listDir`, `rename`, `deleteFile`. The Supernote permission system still applies to it.
+- `engine/obsidian.js` adds the Obsidian syntax to markdown-it; `engine/vault.js` resolves links against a file index.
+- `android/app/src/main/java/com/mathdown/files/` is the native module. `sn-plugin-lib` has no "write text file" call, so this module adds `readText`, `writeText`, `writeBase64`, `listDir`, `listTree`, `rename`, `deleteFile`. The Supernote permission system still applies to it.
 
 ## Limits
 
@@ -126,6 +144,8 @@ Markdown text
 - Equations are not numbered automatically (as in Obsidian). `\tag{...}` works.
 - NOTE places an inserted image at a position that the plugin cannot choose. Move it with the lasso.
 - Formulas inside headings use the body-size image, scaled.
+- Links to `aliases` (from properties) do not resolve yet; link by file name. Tag search, backlinks and a quick switcher are planned for 1.2.
+- Embedded notes show two levels deep; deeper embeds show as links.
 
 ## Troubleshooting
 

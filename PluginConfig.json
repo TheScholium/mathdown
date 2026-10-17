@@ -1,9 +1,9 @@
 {
   "name": "Mathdown",
-  "desc": "Markdown editor with offline LaTeX rendering. Insert typeset formulas into notes.",
+  "desc": "Markdown + LaTeX editor that reads Obsidian notes. Offline math rendering; insert typeset formulas into notes.",
   "iconPath": "assets/plugin-icon.png",
-  "versionName": "1.0.0",
-  "versionCode": "1",
+  "versionName": "1.1.0",
+  "versionCode": "2",
   "pluginID": "yghy1jtfabs9p8ik",
   "pluginKey": "mathdown",
   "jsMainPath": "index",

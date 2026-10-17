@@ -141,3 +141,21 @@ test('textToTeX mixes prose and math', () => {
   expect(textToTeX('$$x$$')).toEqual({tex: 'x', display: true});
   expect(textToTeX('Area $A$ here').tex).toBe('\\text{Area }{A}\\text{ here}');
 });
+
+test('a new note from the file browser starts with its own text (v1.0 bug)', async () => {
+  files.set(VAULT + '/Old.md', 'old content that must not leak');
+  files.set('/data/plugins/mathdown/recent.json', JSON.stringify([VAULT + '/Old.md']));
+  files.set('/data/plugins/mathdown/draft.json', JSON.stringify({path: VAULT + '/Old.md', text: 'old content that must not leak', dirty: false, savedAt: 1}));
+  render(<App />);
+  await settle(300);
+  fireEvent.press(screen.getByText('Files'));
+  await settle(300);
+  fireEvent.press(screen.getByText('New note'));
+  await settle(100);
+  const input = screen.UNSAFE_getAllByType(TextInput).find(t => t.props.autoFocus);
+  fireEvent.changeText(input!, 'Fresh');
+  fireEvent.press(screen.getByText('Create'));
+  await settle(500);
+  expect(files.get(VAULT + '/Fresh.md')).toBe('# Fresh\n\n');
+  expect(files.get(VAULT + '/Old.md')).toBe('old content that must not leak');
+}, 60000);

@@ -1,6 +1,6 @@
 {
   "name": "mathdown",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Markdown editor with offline LaTeX rendering for Supernote",
   "private": true,
   "scripts": {
@@ -13,6 +13,7 @@
   "dependencies": {
     "fflate": "0.8.2",
     "markdown-it": "14.1.0",
+    "markdown-it-footnote": "4.0.0",
     "mathjax-full": "3.2.2",
     "react": "19.0.0",
     "react-native": "0.79.2",

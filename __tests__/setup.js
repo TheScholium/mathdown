@@ -36,6 +36,16 @@ NativeModules.MathdownFiles = {
     }
     return [...out.values()];
   }),
+  listTree: jest.fn(async root => {
+    const out = [];
+    for (const k of files.keys()) {
+      if (!k.startsWith(root + '/')) continue;
+      const rel = k.slice(root.length + 1);
+      if (rel.split('/').some(part => part.startsWith('.'))) continue;
+      out.push({path: k, rel, name: rel.split('/').pop(), size: String(files.get(k)).length, modified: 1700000000000});
+    }
+    return out;
+  }),
   rename: jest.fn(async (a, b) => {
     files.set(b, files.get(a));
     files.delete(a);

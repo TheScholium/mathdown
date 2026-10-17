@@ -127,6 +127,27 @@ export const SNIPPET_GROUPS: SnippetGroup[] = [
     ],
   },
   {
+    name: 'Obsidian',
+    items: [
+      {label: '[[link]]', insert: '[[|]]'},
+      {label: '![[embed]]', insert: '![[|]]'},
+      {label: '[[#heading]]', insert: '[[#|]]'},
+      {label: 'theorem', insert: '\n> [!theorem] |\n> \n'},
+      {label: 'definition', insert: '\n> [!definition] |\n> \n'},
+      {label: 'lemma', insert: '\n> [!lemma] |\n> \n'},
+      {label: 'proof', insert: '\n> [!proof]-\n> |\n'},
+      {label: 'example', insert: '\n> [!example] |\n> \n'},
+      {label: 'note', insert: '\n> [!note] |\n> \n'},
+      {label: 'warning', insert: '\n> [!warning] |\n> \n'},
+      {label: '==mark==', insert: '==|=='},
+      {label: '%%hide%%', insert: '%%|%%'},
+      {label: '#tag', insert: '#|'},
+      {label: 'footnote', insert: '[^|]'},
+      {label: '^block', insert: ' ^|'},
+      {label: 'properties', insert: '---\ntags: [|]\naliases: []\n---\n'},
+    ],
+  },
+  {
     name: 'Markdown',
     items: [
       {label: 'H1', insert: '\n# |'},

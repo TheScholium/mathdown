@@ -25,11 +25,13 @@ type NativeFiles = {
   exists(path: string): Promise<boolean>;
   mkdirs(path: string): Promise<boolean>;
   listDir(path: string): Promise<FileEntry[]>;
+  listTree?(root: string, maxFiles: number): Promise<TreeEntry[]>;
   rename(from: string, to: string): Promise<boolean>;
   deleteFile(path: string): Promise<boolean>;
 };
 
 export type FileEntry = {name: string; path: string; isDir: boolean; size: number; modified: number};
+export type TreeEntry = {path: string; rel: string; name: string; size: number; modified: number};
 
 function nativeFiles(): NativeFiles | null {
   const m = (NativeModules as any).MathdownFiles;
@@ -143,6 +145,35 @@ export async function listDir(path: string): Promise<FileEntry[]> {
   return list.map(p => ({name: p.split('/').pop() || p, path: p, isDir: !/\.[A-Za-z0-9]+$/.test(p), size: 0, modified: 0}));
 }
 
+/**
+ * Lists every file under a folder (hidden folders such as .obsidian are
+ * skipped). Uses the native walker; falls back to listDir in JavaScript.
+ */
+export async function listTree(root: string, maxFiles = 20000): Promise<TreeEntry[]> {
+  if (isShared(root) && !(await ensurePermission('READ'))) throw new FileError('Read permission was not given.');
+  const m = nativeFiles();
+  if (m && typeof m.listTree === 'function') return (await m.listTree(root, maxFiles)) || [];
+  const out: TreeEntry[] = [];
+  const base = root.replace(/\/+$/, '');
+  const walk = async (dir: string, depth: number) => {
+    if (depth > 12 || out.length >= maxFiles) return;
+    let entries: FileEntry[] = [];
+    try {
+      entries = await listDir(dir);
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isDir) await walk(e.path, depth + 1);
+      else out.push({path: e.path, rel: e.path.slice(base.length + 1), name: e.name, size: e.size, modified: e.modified});
+      if (out.length >= maxFiles) return;
+    }
+  };
+  await walk(base, 0);
+  return out;
+}
+
 export async function renameFile(from: string, to: string): Promise<void> {
   if (isShared(from) && !(await ensurePermission('WRITE'))) throw new FileError('Write permission was not given.');
   const ok = await need().rename(from, to);
@@ -189,6 +220,7 @@ export type Settings = {
   preamble: string; // global \newcommand definitions
   removeTextAfterRender: boolean; // lasso "Render TeX": delete the text box
   closeAfterInsert: boolean;
+  autoSave: boolean; // save a note that has a file 2.5 s after the last change
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -201,6 +233,7 @@ export const DEFAULT_SETTINGS: Settings = {
   preamble: '',
   removeTextAfterRender: false,
   closeAfterInsert: true,
+  autoSave: true,
 };
 
 export type Draft = {path: string | null; text: string; dirty: boolean; savedAt: number; selection?: number};
