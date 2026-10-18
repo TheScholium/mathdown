@@ -176,7 +176,7 @@ function num(v, dflt) {
 /**
  * Walks the MathJax SVG tree and draws into the canvas.
  */
-function drawTree(adaptor, root, canvas, rootMatrix, info) {
+function drawTree(adaptor, root, canvas, rootMatrix, info, initState) {
   const tolerance = 0.2;
 
   // Consecutive glyphs with the same ink and clip are filled in one pass:
@@ -186,7 +186,10 @@ function drawTree(adaptor, root, canvas, rootMatrix, info) {
   let batchPolys = [];
 
   function flush() {
-    if (batchPolys.length) canvas.fill(batchPolys, batchGray, 1, batchClip);
+    if (batchPolys.length) {
+      if (batchGray > 0.02) info.colored = true;
+      canvas.fill(batchPolys, batchGray, 1, batchClip);
+    }
     batchPolys = [];
     batchGray = null;
     batchClip = null;
@@ -210,6 +213,7 @@ function drawTree(adaptor, root, canvas, rootMatrix, info) {
 
   function drawOther(polys, gray, opacity, clip) {
     flush();
+    if (gray > 0.02) info.colored = true;
     canvas.fill(polys, gray, opacity, clip);
   }
 
@@ -441,7 +445,7 @@ function drawTree(adaptor, root, canvas, rootMatrix, info) {
   }
 
   for (const c of adaptor.childNodes(root)) {
-    visit(c, {m: rootMatrix, fill: 'black', stroke: 'black', color: 'black', strokeWidth: 0, clip: null, mtableLevel: 0});
+    visit(c, Object.assign({m: rootMatrix, fill: 'black', stroke: 'black', color: 'black', strokeWidth: 0, clip: null, mtableLevel: 0}, initState || {}));
   }
   flush();
 }
@@ -606,6 +610,9 @@ class MathRenderer {
    * @param {number} o.emPx size of 1 em in device pixels
    * @param {number} [o.pad] padding in pixels (default 2)
    * @param {boolean} [o.opaque] white background instead of transparent
+   * @param {boolean} [o.mask] if the formula is all black, return an alpha
+   *   mask (gray 0) that the UI colors with tintColor, and set tint: true.
+   *   A formula with \color or \colorbox keeps its grays and is opaque.
    * @param {number} [o.dpi] optional PNG physical resolution
    * @param {number} [o.maxPixels] refuse larger images (default 8 Mpx)
    * @param {number} [o.level] deflate level 0..9 (default 6)
@@ -658,11 +665,19 @@ class MathRenderer {
     if (info.error) {
       return {ok: false, error: info.error, width: W, height: H, ascent};
     }
-    const pixels = o.opaque ? canvas.toGray(1) : canvas.toGrayAlpha();
-    const png = encodePNG(pixels, W, H, o.opaque ? 1 : 2, o.dpi, o.level);
+    const tint = !!o.mask && !info.colored;
+    const opaque = tint ? false : !!(o.opaque || o.mask);
+    let pixels;
+    if (opaque) pixels = canvas.toGray(1);
+    else {
+      pixels = canvas.toGrayAlpha();
+      if (tint) for (let i = 0; i < pixels.length; i += 2) pixels[i] = 0;
+    }
+    const png = encodePNG(pixels, W, H, opaque ? 1 : 2, o.dpi, o.level);
     return {
       ok: true,
       png,
+      tint,
       get base64() {
         if (!this._b64) this._b64 = toBase64(png);
         return this._b64;
@@ -678,4 +693,4 @@ class MathRenderer {
   }
 }
 
-module.exports = {MathRenderer, luminance, inkGray};
+module.exports = {MathRenderer, luminance, inkGray, drawTree};

@@ -34,7 +34,7 @@ export type Block = BlockBase &
     | {type: 'code'; lang: string; text: string}
     | {type: 'hr'}
     | {type: 'quote'; children: Block[]}
-    | {type: 'callout'; kind: string; fold: '' | '+' | '-'; title: Run[] | null; children: Block[]}
+    | {type: 'callout'; kind: string; /** text after "|" in [!kind|meta] */ meta: string; fold: '' | '+' | '-'; title: Run[] | null; children: Block[]}
     | {type: 'list'; ordered: boolean; start: number; items: ListItem[]}
     | {type: 'table'; header: Run[][]; rows: Run[][][]; align: string[]}
     | {type: 'properties'; props: Property[]}
@@ -63,6 +63,8 @@ export type VaultIndex = {
 export type PreviewImage = {
   ok: boolean;
   uri?: string;
+  /** true: an alpha mask, draw it with tintColor = the text color. */
+  tint?: boolean;
   width: number;
   height: number;
   ascent: number;

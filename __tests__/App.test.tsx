@@ -1,6 +1,6 @@
 import React from 'react';
 import {act, fireEvent, render, screen, waitFor} from '@testing-library/react-native';
-import {Image, TextInput} from 'react-native';
+import {Image, StyleSheet, TextInput} from 'react-native';
 import {PluginManager, PluginNoteAPI, PluginCommAPI, NativeUIUtils} from 'sn-plugin-lib';
 import App from '../App';
 import {renderLassoSelection, textToTeX} from '../src/note';
@@ -34,8 +34,9 @@ test('first start shows the welcome note with rendered math', async () => {
   const imgs = mathImages();
   expect(imgs.length).toBeGreaterThanOrEqual(8);
   for (const i of imgs) {
-    expect(i.props.style.width).toBeGreaterThan(0);
-    expect(i.props.style.height).toBeGreaterThan(0);
+    const st = StyleSheet.flatten(i.props.style);
+    expect(st.width).toBeGreaterThan(0);
+    expect(st.height).toBeGreaterThan(0);
   }
 }, 120000);
 
@@ -90,11 +91,13 @@ test('file browser lists and opens notes', async () => {
   await settle(300);
   fireEvent.press(screen.getByText('Files'));
   await settle(300);
-  expect(screen.getByText('Waves.md')).toBeTruthy();
+  // Istari's file list hides ".md", as Obsidian does
+  expect(screen.getByText('Waves')).toBeTruthy();
   expect(screen.queryByText('image.png')).toBeNull();
-  fireEvent.press(screen.getByText('Waves.md'));
+  fireEvent.press(screen.getByText('Waves'));
   await settle(2500);
-  expect(screen.getByText('Waves.md')).toBeTruthy(); // title bar
+  expect(screen.getByTestId('note-title')).toBeTruthy();
+  expect(screen.getAllByText('Waves').length).toBeGreaterThanOrEqual(1);
   expect(PluginManager.requestPermission).toHaveBeenCalledWith('plugin.permission.FILE:READ', expect.any(String));
 }, 60000);
 
@@ -102,7 +105,7 @@ test('settings persist in the plugin folder', async () => {
   files.set('/data/plugins/mathdown/recent.json', JSON.stringify(['x']));
   render(<App />);
   await settle(300);
-  fireEvent.press(screen.getByText('⚙'));
+  fireEvent.press(screen.getByLabelText('Settings'));
   await settle(100);
   fireEvent.press(screen.getAllByText('+')[0]); // text size 18 -> 19
   fireEvent.press(screen.getByText('Save'));
@@ -142,7 +145,7 @@ test('textToTeX mixes prose and math', () => {
   expect(textToTeX('Area $A$ here').tex).toBe('\\text{Area }{A}\\text{ here}');
 });
 
-test('a new note from the file browser starts with its own text (v1.0 bug)', async () => {
+test('a new note from the file browser starts empty, without the old text (v1.0 bug)', async () => {
   files.set(VAULT + '/Old.md', 'old content that must not leak');
   files.set('/data/plugins/mathdown/recent.json', JSON.stringify([VAULT + '/Old.md']));
   files.set('/data/plugins/mathdown/draft.json', JSON.stringify({path: VAULT + '/Old.md', text: 'old content that must not leak', dirty: false, savedAt: 1}));
@@ -156,6 +159,6 @@ test('a new note from the file browser starts with its own text (v1.0 bug)', asy
   fireEvent.changeText(input!, 'Fresh');
   fireEvent.press(screen.getByText('Create'));
   await settle(500);
-  expect(files.get(VAULT + '/Fresh.md')).toBe('# Fresh\n\n');
+  expect(files.get(VAULT + '/Fresh.md')).toBe(''); // the inline title shows the name
   expect(files.get(VAULT + '/Old.md')).toBe('old content that must not leak');
 }, 60000);

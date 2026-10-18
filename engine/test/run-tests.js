@@ -288,6 +288,35 @@ test('same folder wins over shortest path', () => {
   assert.strictEqual(E.resolveLink(i2, 'A', ROOT + '/Other.md').rel, 'A.md');
 });
 
+test('preview: black math is a tint mask, colored math stays opaque', () => {
+  const s = new E.MathSession();
+  const a = s.preview('x^2 + \\frac{1}{2}', false, 40);
+  assert.ok(a.ok && a.tint === true);
+  const png = Buffer.from(a.uri.split(',')[1], 'base64');
+  assert.strictEqual(png[25], 4); // PNG color type 4 = gray + alpha
+  const b = s.preview('\\color{red}{x} + y', false, 40);
+  assert.ok(b.ok && b.tint === false);
+  assert.strictEqual(Buffer.from(b.uri.split(',')[1], 'base64')[25], 0); // gray, opaque
+  const c = s.preview('\\colorbox{yellow}{x}', false, 40);
+  assert.ok(c.ok && c.tint === false);
+});
+test('svg icons rasterize to an alpha mask', () => {
+  const {rasterizeSvg} = require('../svgicon');
+  const png = rasterizeSvg("<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M4 12h16'/></svg>", 24);
+  assert.strictEqual(Buffer.from(png)[25], 4);
+});
+
+test('callout metadata after |', () => {
+  const b = E.parseMarkdown('> [!theorem|plain] Spectral theorem\n> Body')[0];
+  assert.strictEqual(b.type, 'callout');
+  assert.strictEqual(b.kind, 'theorem');
+  assert.strictEqual(b.meta, 'plain');
+  const c = E.parseMarkdown('> [!Note]- Folded\n> x')[0];
+  assert.strictEqual(c.kind, 'note');
+  assert.strictEqual(c.meta, '');
+  assert.strictEqual(c.fold, '-');
+});
+
 console.log(`${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   for (const f of failures) console.log('FAIL ' + f);

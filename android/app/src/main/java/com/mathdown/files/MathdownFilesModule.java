@@ -1,5 +1,7 @@
 package com.mathdown.files;
 
+import android.graphics.Typeface;
+import android.net.Uri;
 import android.util.Base64;
 
 import com.facebook.react.bridge.Arguments;
@@ -9,6 +11,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.common.assets.ReactFontManager;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -47,7 +50,34 @@ public class MathdownFilesModule extends ReactContextBaseJavaModule {
     /** Returns the module version, so that JS can check that it loaded. */
     @ReactMethod
     public void version(Promise promise) {
-        promise.resolve("1.0.0");
+        promise.resolve("1.2.0");
+    }
+
+    /**
+     * Registers a font file under a React Native fontFamily name.
+     * style: 0 normal, 1 bold, 2 italic, 3 bold italic (android.graphics.Typeface).
+     * Resolves false (never rejects) if the file is missing or cannot be loaded,
+     * so the UI falls back to the system serif.
+     */
+    @ReactMethod
+    public void registerFont(String family, String pathOrUri, double style, Promise promise) {
+        try {
+            String path = pathOrUri;
+            if (path.startsWith("file:")) {
+                String p = Uri.parse(path).getPath();
+                if (p != null) path = p;
+            }
+            File f = new File(path);
+            if (!f.isFile()) {
+                promise.resolve(false);
+                return;
+            }
+            Typeface tf = Typeface.createFromFile(f);
+            ReactFontManager.getInstance().setTypeface(family, (int) style, tf);
+            promise.resolve(true);
+        } catch (Throwable t) {
+            promise.resolve(false);
+        }
     }
 
     @ReactMethod

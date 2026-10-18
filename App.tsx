@@ -40,7 +40,8 @@ import {
   saveSettings,
   writeText,
 } from './src/storage';
-import {GRAY, INK, MONO, PAPER, S} from './src/theme';
+import {FALLBACK_FONTS, Fonts, loadFonts} from './src/fonts';
+import {DEFAULT_THEME, ThemeProvider, makeTheme, paletteOf, track} from './src/theme';
 import {Button, Confirm, ConfirmSpec, Prompt, Segmented} from './src/ui';
 import {getVault, invalidateNote, refreshVault, resolve} from './src/vault';
 import {WELCOME} from './src/welcome';
@@ -107,6 +108,9 @@ function App(): React.JSX.Element {
   const [width, setWidth] = useState(700);
   const [history, setHistory] = useState<string[]>([]);
   const [anchor, setAnchor] = useState<{sub: string; nonce: number} | null>(null);
+  const [fonts, setFonts] = useState<Fonts>(FALLBACK_FONTS);
+  const theme = useMemo(() => makeTheme(paletteOf(settings.theme), fonts), [settings.theme, fonts]);
+  const {S, p: pal, f: face} = theme;
 
   const sel = useRef<Sel>({start: 0, end: 0});
   const editor = useRef<TextInput>(null);
@@ -124,7 +128,9 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     (async () => {
-      const s = await loadSettings();
+      // The fonts are registered before any text uses them.
+      const [s, ft] = await Promise.all([loadSettings(), loadFonts()]);
+      setFonts(ft);
       setSettings(s);
       refreshVault(s.vaultDir);
       setMode(s.autoPreview ? 'split' : 'edit');
@@ -418,7 +424,8 @@ function App(): React.JSX.Element {
 
   const newFile = async (p: string, opts?: {push?: boolean; empty?: boolean}) => {
     const title = basename(p).replace(/\.md$/i, '');
-    const t = opts && opts.empty ? '' : '# ' + title + '\n\n';
+    // With the inline title, the file name is the title (as in Obsidian): start empty.
+    const t = (opts && opts.empty) || settings.inlineTitle ? '' : '# ' + title + '\n\n';
     if (opts && opts.push && path && path !== p) setHistory(h => h.concat(path).slice(-BACK_LIMIT));
     setAnchor(null);
     setPath(p);
@@ -505,7 +512,7 @@ function App(): React.JSX.Element {
     () => ({
       onLink: (t, from) => handlers.current.onLink(t, from),
       onToggleTask: line => handlers.current.onToggleTask(line),
-      onTag: tag => setStatus('#' + tag + ': tag search comes in Mathdown 1.2.'),
+      onTag: tag => setStatus('#' + tag + ': tag search is not in Mathdown yet.'),
       onExternal: href => setStatus('Link: ' + href + ' (Mathdown has no internet access.)'),
     }),
     [],
@@ -570,17 +577,23 @@ function App(): React.JSX.Element {
   /* ---------------- screens ---------------- */
 
   if (!ready) {
+    // No custom fonts here: they are not registered yet.
+    const d = DEFAULT_THEME.p;
     return (
-      <View style={[S.fill, {justifyContent: 'center', alignItems: 'center'}]}>
-        <StatusBar barStyle="dark-content" backgroundColor={PAPER} />
-        <Text style={{fontSize: 20, color: INK}}>Mathdown</Text>
-        <Text style={S.hint}>Loading…</Text>
+      <View style={{flex: 1, backgroundColor: d.bg, justifyContent: 'center', alignItems: 'center'}}>
+        <StatusBar barStyle="dark-content" backgroundColor={d.bg} />
+        <Text style={{fontFamily: 'serif', fontSize: 26, color: d.bright, fontStyle: 'italic'}}>Mathdown</Text>
+        <Text style={{fontFamily: 'serif', fontSize: 15, color: d.faint}}>Loading…</Text>
       </View>
     );
   }
 
+  const statusBar = <StatusBar barStyle={pal.dark ? 'light-content' : 'dark-content'} backgroundColor={pal.bg0} />;
+
   if (screen === 'files') {
     return (
+      <ThemeProvider theme={theme}>
+        {statusBar}
       <FileBrowser
         root={settings.vaultDir}
         currentPath={path}
@@ -603,11 +616,14 @@ function App(): React.JSX.Element {
           }
         }}
       />
+      </ThemeProvider>
     );
   }
 
   if (screen === 'settings') {
     return (
+      <ThemeProvider theme={theme}>
+        {statusBar}
       <SettingsScreen
         settings={settings}
         onClose={() => setScreen('editor')}
@@ -619,10 +635,13 @@ function App(): React.JSX.Element {
           setStatus(ok ? 'Settings saved.' : 'Settings are active but could not be stored.');
         }}
       />
+      </ThemeProvider>
     );
   }
 
-  const title = (path ? basename(path) : 'Untitled') + (dirty ? ' •' : '');
+  const noteName = path ? basename(path).replace(/\.md$/i, '') : 'Untitled';
+  const folder = path ? path.slice(0, path.lastIndexOf('/')) : '';
+  const crumb = path && folder !== settings.vaultDir && folder.startsWith(settings.vaultDir + '/') ? folder.slice(settings.vaultDir.length + 1).replace(/\//g, ' › ') + ' › ' : '';
   const words = (text.match(/\S+/g) || []).length;
   const editorFont = settings.fontSize;
 
@@ -631,14 +650,17 @@ function App(): React.JSX.Element {
       ref={editor}
       style={{
         flex: 1,
-        fontFamily: MONO,
-        fontSize: editorFont,
-        lineHeight: Math.round(editorFont * 1.4),
-        color: INK,
-        padding: 12,
+        fontFamily: settings.editorFont === 'mono' ? face.mono : face.serif,
+        fontSize: settings.editorFont === 'mono' ? Math.round(editorFont * 0.9) : editorFont,
+        lineHeight: Math.round(editorFont * 1.5),
+        color: pal.text,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
         textAlignVertical: 'top',
-        backgroundColor: PAPER,
+        backgroundColor: pal.bg,
       }}
+      cursorColor={pal.gold}
+      selectionColor={pal.highlight}
       value={text}
       onChangeText={onChangeText}
       onSelectionChange={onSelectionChange}
@@ -651,7 +673,7 @@ function App(): React.JSX.Element {
       keyboardType="default"
       importantForAutofill="no"
       placeholder="Type Markdown here. Math: $x^2$ or $$ … $$"
-      placeholderTextColor={GRAY}
+      placeholderTextColor={pal.faint}
       underlineColorAndroid="transparent"
       textBreakStrategy="simple"
     />
@@ -666,6 +688,8 @@ function App(): React.JSX.Element {
       preamble={settings.preamble}
       width={width}
       notePath={path}
+      title={settings.inlineTitle && path ? noteName : null}
+      sidenotes={settings.sidenotes}
       actions={actions}
       anchor={anchor}
       onJump={jumpTo}
@@ -675,7 +699,7 @@ function App(): React.JSX.Element {
 
   const snippetBar =
     mode !== 'view' && showSnippets ? (
-      <View style={{borderTopWidth: 2, borderColor: INK, backgroundColor: PAPER}}>
+      <View style={{borderTopWidth: 1, borderColor: pal.rule, backgroundColor: pal.bg0}}>
         <ScrollView horizontal keyboardShouldPersistTaps="always" overScrollMode="never" showsHorizontalScrollIndicator={false}>
           <View style={[S.row, {paddingHorizontal: 4, paddingTop: 4}]}>
             {SNIPPET_GROUPS.map((g, i) => (
@@ -686,7 +710,7 @@ function App(): React.JSX.Element {
         <ScrollView horizontal keyboardShouldPersistTaps="always" overScrollMode="never">
           <View style={[S.row, {padding: 4}]}>
             {SNIPPET_GROUPS[group].items.map(it => (
-              <Button key={it.label + it.insert} small label={it.label} onPress={() => insertSnippet(it.insert)} />
+              <Button key={it.label + it.insert} small plain label={it.label} onPress={() => insertSnippet(it.insert)} />
             ))}
           </View>
         </ScrollView>
@@ -694,14 +718,13 @@ function App(): React.JSX.Element {
     ) : null;
 
   return (
+    <ThemeProvider theme={theme}>
     <View style={[S.fill, {paddingBottom: kbPad}]} onLayout={onRootLayout}>
-      <StatusBar barStyle="dark-content" backgroundColor={PAPER} />
+      {statusBar}
       {/* Top bar */}
       <View style={S.bar}>
-        <Button label="Files" onPress={() => setScreen('files')} />
-        <Text style={S.barTitle} numberOfLines={1}>
-          {title}
-        </Text>
+        <Button label="Files" icon="istari-codex" onPress={() => setScreen('files')} />
+        <View style={{flex: 1}} />
         <Segmented<Mode>
           value={mode}
           onChange={m => {
@@ -716,24 +739,31 @@ function App(): React.JSX.Element {
         />
         <Button label="Save" disabled={busy || (!dirty && !!path)} onPress={() => save()} />
         <Button label="Insert ∑" disabled={busy} onPress={doInsert} />
-        <Button label="⚙" onPress={() => setScreen('settings')} />
-        <Button label="✕" onPress={() => leaveThen(close)} />
+        <Button label="Settings" icon="istari-key" iconOnly onPress={() => setScreen('settings')} />
+        <Button label="Close" icon="lucide-x" iconOnly onPress={() => leaveThen(close)} />
       </View>
 
       {/* Second bar */}
-      <View style={[S.row, {paddingHorizontal: 6, paddingVertical: 3, borderBottomWidth: 1, borderColor: INK}]}>
-        {history.length ? <Button small label="← Back" onPress={goBack} /> : null}
+      <View style={[S.row, {paddingHorizontal: 6, paddingVertical: 3, borderBottomWidth: 1, borderColor: pal.rule, backgroundColor: pal.bg0}]}>
+        {history.length ? <Button small label="Back" icon="lucide-arrow-left" onPress={goBack} /> : null}
+        {/* Istari view header: the note's path as a small-caps breadcrumb */}
+        <Text style={[S.barTitle, {fontSize: 17, marginHorizontal: 6}]} numberOfLines={1} ellipsizeMode="head" testID="note-title">
+          <Text style={{color: pal.faint}}>{crumb}</Text>
+          {noteName}
+          {dirty ? <Text style={{color: pal.gold}}>{' •'}</Text> : null}
+        </Text>
         {mode !== 'view' ? (
           <>
-            <Button small label="↶ Undo" onPress={doUndo} />
-            <Button small label="↷ Redo" onPress={doRedo} />
-            <Button small label={showSnippets ? 'Hide symbols' : 'Symbols'} onPress={() => setShowSnippets(v => !v)} />
+            <Button small label="Undo" onPress={doUndo} />
+            <Button small label="Redo" onPress={doRedo} />
+            <Button small label="Symbols" active={showSnippets} onPress={() => setShowSnippets(v => !v)} />
           </>
         ) : null}
         {mode !== 'edit' ? <Button small label="Render" onPress={() => setPreviewSource(textRef.current)} /> : null}
         <Button
           small
           label="Help"
+          icon="istari-scroll"
           onPress={() =>
             leaveThen(() => {
               if (path) setHistory(h => h.concat(path).slice(-BACK_LIMIT));
@@ -745,8 +775,8 @@ function App(): React.JSX.Element {
             })
           }
         />
-        <Text style={[S.hint, {flex: 1, textAlign: 'right', marginRight: 6}]} numberOfLines={1}>
-          {progress[1] ? 'Rendering ' + progress[0] + '/' + progress[1] + ' · ' : ''}
+        <Text style={[S.status, {marginHorizontal: 6}]} numberOfLines={1}>
+          {progress[1] ? 'rendering ' + progress[0] + '/' + progress[1] + ' · ' : ''}
           {words} words
         </Text>
       </View>
@@ -766,7 +796,7 @@ function App(): React.JSX.Element {
         {mode === 'split' ? (
           <>
             <View style={{flex: 1}}>{editorView}</View>
-            <View style={{height: 3, backgroundColor: INK}} />
+            <View style={{height: 1, backgroundColor: pal.goldDim}} />
             <View style={{flex: 1}}>{previewView}</View>
           </>
         ) : null}
@@ -776,8 +806,8 @@ function App(): React.JSX.Element {
 
       {/* Status line */}
       {status ? (
-        <View style={{borderTopWidth: 1, borderColor: INK, paddingHorizontal: 10, paddingVertical: 5, flexDirection: 'row', alignItems: 'center'}}>
-          <Text style={[S.bannerText, {flex: 1}]} numberOfLines={2}>
+        <View style={{borderTopWidth: 1, borderColor: pal.rule, backgroundColor: pal.bg0, paddingHorizontal: 12, paddingVertical: 5, flexDirection: 'row', alignItems: 'center'}}>
+          <Text style={[S.bannerText, {flex: 1, fontStyle: 'italic', color: pal.muted, letterSpacing: track(16, 0.005)}]} numberOfLines={2}>
             {status}
           </Text>
           <Button small label="OK" onPress={() => setStatus('')} />
@@ -798,6 +828,7 @@ function App(): React.JSX.Element {
       />
       <Confirm spec={confirm} onClose={() => setConfirm(null)} />
     </View>
+    </ThemeProvider>
   );
 }
 

@@ -538,8 +538,10 @@ function buildTree(tokens) {
               const titleRuns = trimRuns(inlineRuns(head));
               const bodyRuns = inlineRuns(body);
               const id = takeBlockId(bodyRuns.length ? bodyRuns : titleRuns);
+              const bar = m[1].indexOf('|');
               callout = {
-                kind: m[1].toLowerCase(),
+                kind: (bar < 0 ? m[1] : m[1].slice(0, bar)).toLowerCase(),
+                meta: bar < 0 ? '' : m[1].slice(bar + 1).trim().toLowerCase(),
                 fold: m[2] || '',
                 title: hasContent(titleRuns) ? titleRuns : null,
                 first: splitBlocks(bodyRuns, p.map ? p.map[0] : line),
@@ -552,7 +554,7 @@ function buildTree(tokens) {
           }
           const children = parseBlocks('blockquote_close');
           if (callout) {
-            const c = {type: 'callout', kind: callout.kind, fold: callout.fold, title: callout.title, children: callout.first.concat(children), line};
+            const c = {type: 'callout', kind: callout.kind, meta: callout.meta, fold: callout.fold, title: callout.title, children: callout.first.concat(children), line};
             if (callout.id) c.id = callout.id;
             blocks.push(c);
           } else {

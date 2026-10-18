@@ -221,6 +221,10 @@ export type Settings = {
   removeTextAfterRender: boolean; // lasso "Render TeX": delete the text box
   closeAfterInsert: boolean;
   autoSave: boolean; // save a note that has a file 2.5 s after the last change
+  theme: 'paper' | 'night'; // Istari palette: print (paper) or screen (night)
+  inlineTitle: boolean; // show the file name above the note, as Obsidian does
+  sidenotes: boolean; // footnotes open in place under their line (Istari)
+  editorFont: 'serif' | 'mono'; // editor face: EB Garamond (as Istari) or JetBrains Mono
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -234,6 +238,10 @@ export const DEFAULT_SETTINGS: Settings = {
   removeTextAfterRender: false,
   closeAfterInsert: true,
   autoSave: true,
+  theme: 'paper',
+  inlineTitle: true,
+  sidenotes: true,
+  editorFont: 'serif',
 };
 
 export type Draft = {path: string | null; text: string; dirty: boolean; savedAt: number; selection?: number};

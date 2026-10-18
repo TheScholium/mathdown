@@ -50,8 +50,11 @@ class MathSession {
   }
 
   /**
-   * Renders a formula for on-screen preview (opaque, fast compression).
-   * @returns {{ok:boolean, uri?:string, width:number, height:number, ascent:number, error?:string, unsupportedText?:boolean}}
+   * Renders a formula for on-screen preview (fast compression).
+   * A black formula comes back as an alpha mask with tint: true, so the UI
+   * draws it in the color of the surrounding text (Istari section 4). A
+   * formula with its own colors comes back opaque on white, tint: false.
+   * @returns {{ok:boolean, uri?:string, tint?:boolean, width:number, height:number, ascent:number, error?:string, unsupportedText?:boolean}}
    *   width/height/ascent are in device pixels.
    */
   preview(tex, display, emPx) {
@@ -62,11 +65,12 @@ class MathSession {
       this.cache.set(key, hit);
       return hit;
     }
-    const res = this._renderer().render(tex, {display, emPx, pad: 2, opaque: true, level: 1});
+    const res = this._renderer().render(tex, {display, emPx, pad: 2, mask: true, level: 1});
     const out = res.ok
       ? {
           ok: true,
           uri: 'data:image/png;base64,' + res.base64,
+          tint: res.tint,
           width: res.width,
           height: res.height,
           ascent: res.ascent,

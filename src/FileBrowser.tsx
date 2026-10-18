@@ -16,8 +16,8 @@ import {
   renameFile,
   safeName,
 } from './storage';
-import {GRAY, INK, LIGHT, S} from './theme';
-import {Button, Confirm, ConfirmSpec, Prompt} from './ui';
+import {DATA_FIGURES, SMALL_CAPS, track, useTheme} from './theme';
+import {Button, Confirm, ConfirmSpec, Icon, Prompt} from './ui';
 
 const MD_RE = /\.(md|markdown|txt)$/i;
 
@@ -45,6 +45,7 @@ export default function FileBrowser(props: {
   const [prompt, setPrompt] = useState<null | {kind: 'new' | 'folder' | 'rename'; target?: string}>(null);
   const [confirm, setConfirm] = useState<ConfirmSpec>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const {S, p, f} = useTheme();
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -143,15 +144,15 @@ export default function FileBrowser(props: {
   return (
     <View style={S.fill}>
       <View style={S.bar}>
-        <Button label="← Back" onPress={props.onClose} />
+        <Button label="Back" icon="lucide-arrow-left" onPress={props.onClose} />
         <Text style={S.barTitle} numberOfLines={1}>
-          {dir.replace('/storage/emulated/0/', '')}
+          {dir.replace('/storage/emulated/0/', '').split('/').join(' › ')}
         </Text>
-        <Button label="New note" disabled={!props.canWrite} onPress={() => setPrompt({kind: 'new'})} />
+        <Button label="New note" cta disabled={!props.canWrite} onPress={() => setPrompt({kind: 'new'})} />
         <Button label="New folder" disabled={!props.canWrite} onPress={() => setPrompt({kind: 'folder'})} />
       </View>
-      <View style={[S.row, {padding: 6, borderBottomWidth: 1, borderColor: INK, flexWrap: 'wrap'}]}>
-        <Button label="↑ Up" small disabled={atRoot} onPress={() => setDir(dirname(dir))} />
+      <View style={[S.row, {padding: 6, borderBottomWidth: 1, borderColor: p.rule, backgroundColor: p.bg0, flexWrap: 'wrap'}]}>
+        <Button label="Up" small disabled={atRoot} onPress={() => setDir(dirname(dir))} />
         <Button label="Notes folder" small onPress={() => setDir(props.root)} />
         <Button label="Browse device…" small onPress={browseDevice} />
         <Button label="Refresh" small onPress={refresh} />
@@ -169,12 +170,13 @@ export default function FileBrowser(props: {
         </View>
       ) : null}
       {recent.length && atRoot ? (
-        <View style={{paddingHorizontal: 12, paddingTop: 8}}>
-          <Text style={S.hint}>Recent</Text>
-          {recent.map(p => (
-            <Pressable key={p} onPress={() => props.onOpen(p)} style={{paddingVertical: 6}}>
-              <Text style={{fontSize: 16, color: INK}} numberOfLines={1}>
-                {basename(p)} <Text style={S.hint}>— {dirname(p).replace('/storage/emulated/0/', '')}</Text>
+        <View style={{paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6, borderBottomWidth: 1, borderColor: p.rule}}>
+          <Text style={{fontFamily: f.serif, fontSize: 13, color: p.faint, fontVariant: SMALL_CAPS, letterSpacing: track(13, 0.14)}}>Recent</Text>
+          {recent.map(r => (
+            <Pressable key={r} onPress={() => props.onOpen(r)} style={{paddingVertical: 6}}>
+              <Text style={{fontFamily: f.serif, fontSize: 17, color: p.text}} numberOfLines={1}>
+                {basename(r).replace(MD_RE, '')}
+                <Text style={{fontStyle: 'italic', color: p.faint}}>{'  ' + dirname(r).replace('/storage/emulated/0/', '')}</Text>
               </Text>
             </Pressable>
           ))}
@@ -186,7 +188,7 @@ export default function FileBrowser(props: {
         style={{flex: 1}}
         overScrollMode="never"
         ListEmptyComponent={
-          <Text style={[S.hint, {padding: 16}]}>{error ? '' : 'No Markdown notes here yet. Tap "New note".'}</Text>
+          <Text style={[S.hint, {padding: 16}]}>{error ? '' : 'No Markdown notes here yet. Tap New note.'}</Text>
         }
         renderItem={({item}) => {
           const isSel = selected === item.path;
@@ -199,19 +201,34 @@ export default function FileBrowser(props: {
                 flexDirection: 'row',
                 alignItems: 'center',
                 paddingHorizontal: 14,
-                paddingVertical: 12,
+                paddingVertical: 11,
                 borderBottomWidth: 1,
-                borderColor: LIGHT,
-                borderLeftWidth: isSel ? 6 : 0,
-                borderLeftColor: INK,
+                borderColor: p.rule,
+                // Istari: the active file in gold with an inset gold-dim rule.
+                borderLeftWidth: isSel || isCur ? 2 : 0,
+                borderLeftColor: p.goldDim,
+                backgroundColor: isSel ? p.bg3 : isCur ? `rgba(${p.goldRgb}, 0.08)` : 'transparent',
               }}>
-              <Text style={{fontSize: 18, width: 30, color: INK}}>{item.isDir ? '▸' : '≡'}</Text>
+              <Icon
+                name={item.isDir ? 'lucide-folder' : 'lucide-file-text'}
+                size={20}
+                color={item.isDir ? p.goldDim : isCur ? p.gold : p.faint}
+                style={{marginRight: 12}}
+              />
               <View style={{flex: 1}}>
-                <Text style={{fontSize: 18, color: INK, fontWeight: isCur ? '700' : '400'}} numberOfLines={1}>
-                  {item.name}
-                </Text>
+                {item.isDir ? (
+                  <Text
+                    style={{fontFamily: f.serif, fontSize: 18, color: p.muted, fontVariant: SMALL_CAPS, letterSpacing: track(18, 0.05)}}
+                    numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                ) : (
+                  <Text style={{fontFamily: f.serif, fontSize: 18, color: isCur ? p.gold : p.text}} numberOfLines={1}>
+                    {item.name.replace(/\.md$/i, '')}
+                  </Text>
+                )}
                 {!item.isDir ? (
-                  <Text style={{fontSize: 13, color: GRAY}}>
+                  <Text style={{fontFamily: f.serif, fontSize: 13, color: p.faint, fontVariant: DATA_FIGURES}}>
                     {when(item.modified)}
                     {item.size ? '  ·  ' + Math.max(1, Math.round(item.size / 1024)) + ' KB' : ''}
                   </Text>
@@ -221,7 +238,7 @@ export default function FileBrowser(props: {
           );
         }}
       />
-      <Text style={[S.hint, {padding: 10, borderTopWidth: 1, borderColor: INK}]}>
+      <Text style={[S.hint, {padding: 10, borderTopWidth: 1, borderColor: p.rule, backgroundColor: p.bg0}]}>
         Tap a note to open it. Long-press a note to rename or delete it.
       </Text>
       <Prompt

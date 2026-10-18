@@ -1,6 +1,6 @@
 {
   "name": "mathdown",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Markdown editor with offline LaTeX rendering for Supernote",
   "private": true,
   "scripts": {
@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit -p .",
     "build": "bash tools/build-plugin.sh",
     "build:gradle": "bash buildPlugin.sh",
-    "icons": "node tools/make-icons.js"
+    "icons": "node tools/make-icons.js",
+    "icons:ui": "node tools/make-ui-icons.js"
   },
   "dependencies": {
     "fflate": "0.8.2",

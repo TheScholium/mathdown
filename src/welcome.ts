@@ -1,7 +1,7 @@
 /** The example note shown on first start and from Help. */
 const RAW = String.raw`# Welcome to Mathdown
 
-Mathdown is a **Markdown** editor that renders **TeX math** on your Supernote, offline. Files are plain {BT}.md{BT}, so the same notes open in Obsidian and other editors.
+Mathdown is a **Markdown** editor that renders **TeX math** on your Supernote, offline. Files are plain {BT}.md{BT}, so the same notes open in Obsidian and other editors. The page is set in the style of the Istari theme for Obsidian: EB Garamond, small-caps bold, gold rules.
 
 ## Math
 
@@ -45,16 +45,18 @@ $$ \newcommand{\avg}[1]{\left\langle #1 \right\rangle} \avg{x^2} - \avg{x}^2 = \
 
 ## Obsidian syntax
 
-Mathdown reads the same notes as Obsidian. Link with {BT}[[Note name]]{BT} or {BT}[[Note#Heading|shown text]]{BT}. Tap a link to open the note; **← Back** returns. A link to a note that does not exist offers to create it.
+Mathdown reads the same notes as Obsidian. Link with {BT}[[Note name]]{BT} or {BT}[[Note#Heading|shown text]]{BT}. Tap a link to open the note; **Back** returns. A link to a note that does not exist offers to create it.
 
 > [!theorem] Cauchy–Schwarz
 > For $u, v$ in an inner product space, $|\langle u, v\rangle| \le \|u\|\,\|v\|$.
 
 > [!proof]-
-> Tap "Proof." to fold this open. For $v \neq 0$, expand $0 \le \|u - t v\|^2$ with $t = \langle v, u\rangle / \|v\|^2$.
+> Tap "Proof:" to open this. For $v \neq 0$, expand $0 \le \|u - t v\|^2$ with $t = \langle v, u\rangle / \|v\|^2$.
 
 > [!tip] Callouts
-> Every Obsidian callout works. {BT}theorem{BT}, {BT}lemma{BT}, {BT}definition{BT} and {BT}proof{BT} get a math style.
+> Every Obsidian callout works. Istari's mathematical types get their own icon and label: {BT}theorem{BT} ({BT}thm{BT}), {BT}definition{BT} ({BT}def{BT}), {BT}lemma{BT}, {BT}proposition{BT}, {BT}corollary{BT}, {BT}proof{BT}, {BT}example{BT}, {BT}remark{BT}, {BT}axiom{BT}, {BT}conjecture{BT}, {BT}intuition{BT} and {BT}exercise{BT}. Results are set in italics. {BT}[!theorem|plain]{BT} drops the "Theorem:" label.
+
+Footnotes are sidenotes: tap the gold number to open the note under its line.^[Write {BT}^[...]{BT} for an inline note. Begin it with "? " to mark a query.] A query is marked in green-blue.^[? Does this work inside a callout too?]
 
 Also supported: ==highlights==, #tags, footnotes,[^1] embeds such as {BT}![[Note]]{BT}, {BT}![[Note#Heading]]{BT} or {BT}![[figure.png|300]]{BT}, %%this comment is hidden%% comments, block IDs ({BT}^id{BT}), and properties at the top of a note. Tap a task box to tick it.
 
@@ -74,7 +76,8 @@ Or type TeX into a NOTE text box, lasso it, and tap **Render TeX** in the lasso 
 
 - **Split** shows the editor and the preview together. **View** shows only the preview; long-press a paragraph to jump to it in the editor.
 - The snippet bar above the keyboard inserts {BT}\frac{}{}{BT}, Greek letters, matrices and more.
-- Notes are saved in {BT}Document/Mathdown{BT} (set your vault folder in ⚙). Notes with a file are saved automatically; unsaved text is kept as a draft if Mathdown closes.
+- Settings (the key) has the palette: Istari Paper, for e-ink, or Istari Night.
+- Notes are saved in {BT}Document/Mathdown{BT} (set your vault folder in Settings). Notes with a file are saved automatically; unsaved text is kept as a draft if Mathdown closes.
 `;
 
 export const WELCOME = RAW.replace(/\{BT\}/g, '`');
